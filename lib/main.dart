@@ -1,9 +1,14 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:async';
 import 'dart:convert';
+
+// リファクタリング対応
+import 'package:honegumi_dake/utils/databse_helper.dart';
 
 // https://pub.dev/packages/uuid/install
 import 'package:uuid/uuid.dart';
@@ -22,6 +27,7 @@ class QuizApp extends StatelessWidget {
       home: StartScreen(),
       routes: {
         '/quizConfig': (context) => QuizConfigScreen(),
+        // クイズ問題を渡す変更をするときに変数が必要なのでここは個別に宣言した。
 //        '/quiz': (context) => QuizScreen(numQuestions: null,),
         '/result': (context) => ResultScreen(),
         '/mypage': (context) => MyPageScreen(),
@@ -31,117 +37,118 @@ class QuizApp extends StatelessWidget {
     );
   }
 }
+// ソースコードを分割済みなので無視する
+// class DatabaseHelper {
+//   static Database? _database;
+//
+//   static Future<void> initializeDatabase() async {
+//     if (_database != null) return; // DB の初期化がまだのときだけ。次以降実行されない。
+//     _database = await openDatabase(
+//       join(await getDatabasesPath(), 'quiz.db'),
+//       onCreate: (db, version) {
+//         db.execute(
+//           "CREATE TABLE Quiz(quizId TEXT PRIMARY KEY, quizText TEXT, options TEXT, explanation TEXT, difficulty INTEGER, category TEXT, createdBy TEXT, updatedAt INTEGER)",
+//         );
+//         db.execute(
+//           "CREATE TABLE QuizHistory(historyId TEXT PRIMARY KEY, startTimestamp INTEGER, updateTimestamp INTEGER, completeTimestamp INTEGER, isCompleted INTEGER, score INTEGER, totalQuestions INTEGER, correctAnswers INTEGER)",
+//         );
+//         db.execute(
+//           "CREATE TABLE User(globalUserId TEXT PRIMARY KEY, userId TEXT, nickname TEXT, email TEXT, profilePicture TEXT)",
+//         );
+//         db.execute(
+//           "CREATE TABLE QuizHistoryDetail(historyId TEXT, quizId TEXT, selectedOptionId TEXT, isCorrect INTEGER, timeTaken INTEGER)",
+//         );
+//         db.execute(
+//           "CREATE TABLE currentQuiz(historyId TEXT, quizId TEXT, selectedOptionId TEXT, isCorrect INTEGER)",
+//         );
+//         db.execute(
+//           "CREATE TABLE Fav(quizId TEXT PRIMARY KEY, timestamp INTEGER)",
+//         );
+//         db.execute(
+//           "CREATE TABLE Update(updateId TEXT PRIMARY KEY, timestamp INTEGER)",
+//         );
+//
+//         _insertDummyData(db);
+//       },
+//       version: 1,
+//     );
+//   }
+//
+//   static Future<void> _insertDummyData(Database db) async {
+//     await db.insert('Quiz', {
+//       'quizId': '1',
+//       'quizText': 'これはサンプルクイズ1です。',
+//       'options': json.encode([
+//         {'optionId': '1', 'optionText': '選択肢1', 'isCorrect': false},
+//         {'optionId': '2', 'optionText': '選択肢2', 'isCorrect': true},
+//         {'optionId': '3', 'optionText': '選択肢3', 'isCorrect': false}
+//       ]),
+//       'explanation': 'これは解説1です。',
+//       'difficulty': 1,
+//       'category': 'Sample',
+//       'createdBy': 'admin',
+//       'updatedAt': DateTime.now().millisecondsSinceEpoch
+//     });
+//
+//     await db.insert('Quiz', {
+//       'quizId': '2',
+//       'quizText': 'これはサンプルクイズ2です。',
+//       'options': json.encode([
+//         {'optionId': '1', 'optionText': '選択肢1', 'isCorrect': false},
+//         {'optionId': '2', 'optionText': '選択肢2', 'isCorrect': true},
+//         {'optionId': '3', 'optionText': '選択肢3', 'isCorrect': false}
+//       ]),
+//       'explanation': 'これは解説2です。',
+//       'difficulty': 2,
+//       'category': 'Sample',
+//       'createdBy': 'admin',
+//       'updatedAt': DateTime.now().millisecondsSinceEpoch
+//     });
+//
+//     await db.insert('Quiz', {
+//       'quizId': '3',
+//       'quizText': 'これはサンプルクイズ3です。',
+//       'options': json.encode([
+//         {'optionId': '1', 'optionText': '選択肢1', 'isCorrect': false},
+//         {'optionId': '2', 'optionText': '選択肢2', 'isCorrect': true},
+//         {'optionId': '3', 'optionText': '選択肢3', 'isCorrect': false}
+//       ]),
+//       'explanation': 'これは解説3です。',
+//       'difficulty': 3,
+//       'category': 'Sample',
+//       'createdBy': 'admin',
+//       'updatedAt': DateTime.now().millisecondsSinceEpoch
+//     });
+//   }
+//
+//   static Future<List<Map<String, dynamic>>> getQuizzes() async {
+//     if (_database == null) await initializeDatabase();
+//     // select * from Quiz と恩時意味らしい
+//     return await _database!.query('Quiz');
+//   }
+//
+//   static Future<List<Map<String, dynamic>>> getQuizzesAsRandom({int? limit}) async {
+//     if (_database == null) await initializeDatabase();
+//     return await _database!.query(
+//       'Quiz',
+//       orderBy: 'RANDOM()',
+//       limit: limit,
+//     );
+//   }
+//
+//   static Future<void> insertQuizHistory(Map<String, dynamic> history) async {
+//     if (_database == null) await initializeDatabase();
+//     await _database!.insert('QuizHistory', history);
+//   }
+//
+//   static Future<void> insertQuizHistoryDetail(Map<String, dynamic> detail) async {
+//     if (_database == null) await initializeDatabase();
+//     await _database!.insert('QuizHistoryDetail', detail);
+//   }
+//
+// }
+// ソースコードを分割済みなので無視する。最後に消す
 
-class DatabaseHelper {
-  static Database? _database;
-
-  static Future<void> initializeDatabase() async {
-    if (_database != null) return;
-
-    _database = await openDatabase(
-      join(await getDatabasesPath(), 'quiz.db'),
-      onCreate: (db, version) {
-        db.execute(
-          "CREATE TABLE Quiz(quizId TEXT PRIMARY KEY, quizText TEXT, options TEXT, explanation TEXT, difficulty INTEGER, category TEXT, createdBy TEXT, updatedAt INTEGER)",
-        );
-        db.execute(
-          "CREATE TABLE QuizHistory(historyId TEXT PRIMARY KEY, startTimestamp INTEGER, updateTimestamp INTEGER, completeTimestamp INTEGER, isCompleted INTEGER, score INTEGER, totalQuestions INTEGER, correctAnswers INTEGER)",
-        );
-        db.execute(
-          "CREATE TABLE User(globalUserId TEXT PRIMARY KEY, userId TEXT, nickname TEXT, email TEXT, profilePicture TEXT)",
-        );
-        db.execute(
-          "CREATE TABLE QuizHistoryDetail(historyId TEXT, quizId TEXT, selectedOptionId TEXT, isCorrect INTEGER, timeTaken INTEGER)",
-        );
-        db.execute(
-          "CREATE TABLE currentQuiz(historyId TEXT, quizId TEXT, selectedOptionId TEXT, isCorrect INTEGER)",
-        );
-        db.execute(
-          "CREATE TABLE Fav(quizId TEXT PRIMARY KEY, timestamp INTEGER)",
-        );
-        db.execute(
-          "CREATE TABLE Update(updateId TEXT PRIMARY KEY, timestamp INTEGER)",
-        );
-
-        _insertDummyData(db);
-      },
-      version: 1,
-    );
-  }
-
-  static Future<void> _insertDummyData(Database db) async {
-    await db.insert('Quiz', {
-      'quizId': '1',
-      'quizText': 'これはサンプルクイズ1です。',
-      'options': json.encode([
-        {'optionId': '1', 'optionText': '選択肢1', 'isCorrect': false},
-        {'optionId': '2', 'optionText': '選択肢2', 'isCorrect': true},
-        {'optionId': '3', 'optionText': '選択肢3', 'isCorrect': false}
-      ]),
-      'explanation': 'これは解説1です。',
-      'difficulty': 1,
-      'category': 'Sample',
-      'createdBy': 'admin',
-      'updatedAt': DateTime.now().millisecondsSinceEpoch
-    });
-
-    await db.insert('Quiz', {
-      'quizId': '2',
-      'quizText': 'これはサンプルクイズ2です。',
-      'options': json.encode([
-        {'optionId': '1', 'optionText': '選択肢1', 'isCorrect': false},
-        {'optionId': '2', 'optionText': '選択肢2', 'isCorrect': true},
-        {'optionId': '3', 'optionText': '選択肢3', 'isCorrect': false}
-      ]),
-      'explanation': 'これは解説2です。',
-      'difficulty': 2,
-      'category': 'Sample',
-      'createdBy': 'admin',
-      'updatedAt': DateTime.now().millisecondsSinceEpoch
-    });
-
-    await db.insert('Quiz', {
-      'quizId': '3',
-      'quizText': 'これはサンプルクイズ3です。',
-      'options': json.encode([
-        {'optionId': '1', 'optionText': '選択肢1', 'isCorrect': false},
-        {'optionId': '2', 'optionText': '選択肢2', 'isCorrect': true},
-        {'optionId': '3', 'optionText': '選択肢3', 'isCorrect': false}
-      ]),
-      'explanation': 'これは解説3です。',
-      'difficulty': 3,
-      'category': 'Sample',
-      'createdBy': 'admin',
-      'updatedAt': DateTime.now().millisecondsSinceEpoch
-    });
-  }
-
-  static Future<List<Map<String, dynamic>>> getQuizzes() async {
-    if (_database == null) await initializeDatabase();
-    // select * from Quiz と恩時意味らしい
-    return await _database!.query('Quiz');
-  }
-
-  static Future<List<Map<String, dynamic>>> getQuizzesAsRandom({int? limit}) async {
-    if (_database == null) await initializeDatabase();
-    return await _database!.query(
-      'Quiz',
-      orderBy: 'RANDOM()',
-      limit: limit,
-    );
-  }
-
-  static Future<void> insertQuizHistory(Map<String, dynamic> history) async {
-    if (_database == null) await initializeDatabase();
-    await _database!.insert('QuizHistory', history);
-  }
-
-  static Future<void> insertQuizHistoryDetail(Map<String, dynamic> detail) async {
-    if (_database == null) await initializeDatabase();
-    await _database!.insert('QuizHistoryDetail', detail);
-  }
-
-}
 
 class StartScreen extends StatelessWidget {
   @override
@@ -180,6 +187,7 @@ class QuizConfigScreen extends StatefulWidget {
 }
 
 class _QuizConfigScreenState extends State<QuizConfigScreen> {
+  // 初期選択値
   int _selectedValue = 3;
 
   @override
@@ -190,13 +198,14 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // 固定値３からの変更。
             // DropdownButton<int>(
             //   value: 3,
             //   items: [DropdownMenuItem(child: Text('3問'), value: 3)],
             //   onChanged: (value) { print(value.toString()+ "これがValue");},
             // ),
             DropdownButton<int>(
-              value: _selectedValue,
+              value: _selectedValue,//初期値はクラスの配下にある。
               items: [
                 DropdownMenuItem(child: Text('1問'), value: 1),
                 DropdownMenuItem(child: Text('2問'), value: 2),
@@ -206,7 +215,7 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
                 setState(() {
                   _selectedValue = value!;
                 });
-                print(value.toString() + "これがValue");
+                print(value.toString() + "これがプルダウン選択→Value");
               },
             ),
             ElevatedButton(
@@ -215,6 +224,7 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
+                    // ★あとでジャンルや失敗のみのオプションをつける
                     builder: (context) => QuizScreen(numQuestions: _selectedValue),
                   ),
                 );
@@ -226,6 +236,8 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
     );
   }
 }
+
+
 class QuizScreen extends StatefulWidget {
   final int numQuestions;
 
@@ -251,18 +263,23 @@ class _QuizScreenState extends State<QuizScreen> {
   void initState() {
     super.initState();
     _historyId = _uuid.v4(); // Generate a unique ID for this quiz session
+    print(_historyId + "このクイズの通しID");
     _loadQuizzes();
     _loadFavoriteStatus();
   }
 
   Future<void> _loadQuizzes() async {
-    final quizzes = await DatabaseHelper.getQuizzesAsRandom(limit: widget.numQuestions);
+//    final quizzes = await DatabaseHelper.getQuizzesAsRandom(limit: widget.numQuestions);
+  final quizzes = await DatabaseHelper.getAllQuizzes();
+  // ★あとでランダムありなしフラグ立ててユーザーに選ばせる
+//  quizzes.shuffle(Random()); // クイズをランダムにシャッフル
     setState(() {
-      _quizzes = quizzes;
+      _quizzes =  quizzes.take(widget.numQuestions).toList(); // 選択した問題数だけを取得
     });
   }
 
   Future<void> _loadFavoriteStatus() async {
+    print("お気に入りの読み込み _loadFavoriteStatus");
     if (_quizzes.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     final favorites = prefs.getStringList('favorites') ?? [];
@@ -274,7 +291,9 @@ class _QuizScreenState extends State<QuizScreen> {
   Future<void> _toggleFavorite(String quizId) async {
     final prefs = await SharedPreferences.getInstance();
     final favorites = prefs.getStringList('favorites') ?? [];
+    print(favorites.toString() + "初期値: おきにです");
 
+    // quiz id check
     if (favorites.contains(quizId)) {
       favorites.remove(quizId);
       setState(() {
@@ -288,12 +307,14 @@ class _QuizScreenState extends State<QuizScreen> {
     }
 
     await prefs.setStringList('favorites', favorites);
+    print(favorites.toString() + "after お気に入り");
   }
 
   void _answerQuestion(bool isCorrect) {
     setState(() {
       _isAnswered = true;
       _isCorrect = isCorrect;
+      // 正解、★ピンポンもさせたい
       if (isCorrect) {
         _correctAnswers++;
       }
@@ -304,6 +325,7 @@ class _QuizScreenState extends State<QuizScreen> {
         'selectedOptionId': _currentQuestionIndex, // 適切な選択肢IDを設定する必要があります
         'timeTaken': 0, // 時間を追跡する場合に設定します
       });
+      print(_quizHistoryDetail.toString() + "くいずひすとり");
     });
   }
 
@@ -324,6 +346,7 @@ class _QuizScreenState extends State<QuizScreen> {
       'correctAnswers': _correctAnswers,
     };
     await DatabaseHelper.insertQuizHistory(historyData);
+    print(historyData.toString() + "ひすとり");
 
     for (var detail in _quizHistoryDetail) {
       final detailData = {
