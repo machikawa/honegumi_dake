@@ -2,6 +2,10 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:convert';
 
+/// Firebase対応
+///
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class DatabaseHelper {
   static Database? _database;
 
@@ -12,7 +16,9 @@ class DatabaseHelper {
       version: 1,
       onCreate: (db, version) {
         db.execute(
-          "CREATE TABLE Quiz(quizId TEXT PRIMARY KEY, quizText TEXT, options TEXT, explanation TEXT, difficulty INTEGER, category TEXT, createdBy TEXT, updatedAt INTEGER)",
+          "CREATE TABLE Quiz(quizId TEXT PRIMARY KEY, "
+              "quizText TEXT, options TEXT, explanation TEXT, difficulty INTEGER, category TEXT, "
+              "createdBy TEXT, updatedAt INTEGER)",
         );
         db.execute(
           "CREATE TABLE QuizHistory(historyId TEXT PRIMARY KEY, startTimestamp INTEGER, updateTimestamp INTEGER, completeTimestamp INTEGER, isCompleted INTEGER, score INTEGER, totalQuestions INTEGER, correctAnswers INTEGER)",
@@ -29,9 +35,9 @@ class DatabaseHelper {
         db.execute(
           "CREATE TABLE Fav(quizId TEXT PRIMARY KEY, timestamp INTEGER)",
         );
-        db.execute(
-          "CREATE TABLE Update(updateId TEXT PRIMARY KEY, timestamp INTEGER)",
-        );
+        // db.execute(
+        //   "CREATE TABLE Update(updateId TEXT PRIMARY KEY, timestamp INTEGER)",
+        // );
 
         _insertDummyData(db);
       },
@@ -84,6 +90,9 @@ class DatabaseHelper {
       'updatedAt': DateTime.now().millisecondsSinceEpoch
     });
   }
+
+
+
   // 全県を正直に引っ張る
   static Future<List<Map<String, dynamic>>> getAllQuizzes() async {
     if (_database == null) await initializeDatabase();
@@ -109,4 +118,35 @@ class DatabaseHelper {
     if (_database == null) await initializeDatabase();
     await _database!.insert('QuizHistoryDetail', detail);
   }
+
+// FB格納じゃ
+  static Future<bool> insertQuizToFirestore(Map<String, dynamic> quiz) async {
+    return FirebaseFirestore.instance.collection('quizOnFb').add(quiz)
+        .then((value) {
+      return true;
+    })
+        .catchError((error) {
+      print("Error adding document to Firestore: $error");
+      return false;
+    });
+  }
+
+  // Local 格納じゃ
+  static Future<void> insertQuizToLocalDB(Map<String, dynamic> quiz) async {
+    if (_database == null) await initializeDatabase();
+    await _database!.insert('Quiz', quiz);
+  }
+
+  // Firestoreからクイズ取得
+  static Future<List<Map<String, dynamic>>> getQuizzesFromFirestore() async {
+    try {
+      QuerySnapshot querySnapshot = await FirebaseFirestore.instance.collection('quizOnFb').get();
+      return querySnapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+    } catch (e) {
+      print("Error getting documents from Firestore: $e");
+      return [];
+    }
+  }
+
+
 }

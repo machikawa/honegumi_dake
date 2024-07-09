@@ -13,10 +13,23 @@ import 'package:honegumi_dake/utils/databse_helper.dart';
 // https://pub.dev/packages/uuid/install
 import 'package:uuid/uuid.dart';
 
+//Firebase 対応
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 void main() async {
   print("main");
   WidgetsFlutterBinding.ensureInitialized();
+//  await Firebase.initializeApp(); // Firebaseの初期化
   await DatabaseHelper.initializeDatabase();
+
+  // firebase init をする
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+
   runApp(QuizApp());
 }
 
@@ -175,10 +188,93 @@ class StartScreen extends StatelessWidget {
               },
             ),
           ),
+          Card(
+            child: ListTile(
+              title: Text('FB保存だよ'),
+              onTap: () async {
+                final quiz = {
+                  'quizId': '4',
+                  'quizText': 'これはFirestoreに挿入するクイズです。',
+                  'options': json.encode([
+                    {'optionId': '1', 'optionText': '選択肢1', 'isCorrect': false},
+                    {'optionId': '2', 'optionText': '選択肢2', 'isCorrect': true},
+                    {'optionId': '3', 'optionText': '選択肢3', 'isCorrect': false}
+                  ]),
+                  'explanation': 'これは解説です。',
+                  'difficulty': 2,
+                  'category': 'Sample',
+                  'createdBy': 'admin',
+                  'updatedAt': DateTime.now().millisecondsSinceEpoch
+                };
+
+                bool success = await DatabaseHelper.insertQuizToFirestore(quiz);
+                if (success) {
+                  _showSaveToLocalDialog(context, quiz);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('更新エラー')),);
+                }
+              },
+            ),
+          ),
+          Card(
+            child: ListTile(
+              title: Text('FBからクイズ取得だよ'),
+              onTap: () async {
+                List<Map<String, dynamic>> quizzes = await DatabaseHelper.getQuizzesFromFirestore();
+                if (quizzes.isNotEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('クイズ取得成功: ${quizzes.length}件')),
+                  );
+                  print(quizzes);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('クイズ取得エラー')),
+                  );
+                }
+              },
+            ),
+          ),
+
         ],
       ),
     );
   }
+
+  void _showSaveToLocalDialog(BuildContext context, Map<String, dynamic> quiz) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('確認'),
+          content: Text('ローカルDBにも保存しますか？'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('いいえ'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: Text('はい'),
+              onPressed: () async {
+                try {
+                  await DatabaseHelper.insertQuizToLocalDB(quiz);
+                  Navigator.of(context).pop();
+                } catch (e) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('ローカルDBへの保存エラー: $e')),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 }
 
 class QuizConfigScreen extends StatefulWidget {
@@ -186,9 +282,11 @@ class QuizConfigScreen extends StatefulWidget {
   _QuizConfigScreenState createState() => _QuizConfigScreenState();
 }
 
+
 class _QuizConfigScreenState extends State<QuizConfigScreen> {
   // 初期選択値
   int _selectedValue = 3;
+  String _selectedCategory = '1'; // ジャンルの初期選択値
 
   @override
   Widget build(BuildContext context) {
@@ -198,26 +296,36 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 固定値３からの変更。
-            // DropdownButton<int>(
-            //   value: 3,
-            //   items: [DropdownMenuItem(child: Text('3問'), value: 3)],
-            //   onChanged: (value) { print(value.toString()+ "これがValue");},
-            // ),
+            DropdownButton<String>(
+              value: _selectedCategory, // 初期値はクラスの配下にある。
+              items: [
+                DropdownMenuItem(child: Text('Data Cloud コンサル'), value: '1'),
+                DropdownMenuItem(child: Text('MC コンサル'), value: '2'),
+                DropdownMenuItem(child: Text('CRM'), value: '3'),
+              ],
+              onChanged: (value) {
+                setState(() {
+                  _selectedCategory = value!;
+                });
+                print(value.toString() + " これがプルダウン選択→Category");
+              },
+            ),
             DropdownButton<int>(
-              value: _selectedValue,//初期値はクラスの配下にある。
+              value: _selectedValue, // 初期値はクラスの配下にある。
               items: [
                 DropdownMenuItem(child: Text('1問'), value: 1),
                 DropdownMenuItem(child: Text('2問'), value: 2),
                 DropdownMenuItem(child: Text('3問'), value: 3),
+                DropdownMenuItem(child: Text('4問'), value: 4),
               ],
               onChanged: (value) {
                 setState(() {
                   _selectedValue = value!;
                 });
-                print(value.toString() + "これがプルダウン選択→Value");
+                print(value.toString() + " これがプルダウン選択→Value");
               },
             ),
+
             ElevatedButton(
               child: Text('スタート'),
               onPressed: () {
@@ -225,7 +333,7 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
                   context,
                   MaterialPageRoute(
                     // ★あとでジャンルや失敗のみのオプションをつける
-                    builder: (context) => QuizScreen(numQuestions: _selectedValue),
+                    builder: (context) => QuizScreen(numQuestions: _selectedValue, category: _selectedCategory),
                   ),
                 );
               },
@@ -240,8 +348,9 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
 
 class QuizScreen extends StatefulWidget {
   final int numQuestions;
+  final String category;
 
-  QuizScreen({required this.numQuestions});
+  QuizScreen({required this.numQuestions, required this.category});
 
   @override
   _QuizScreenState createState() => _QuizScreenState();
@@ -259,6 +368,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
   final _uuid = Uuid();
 
+
   @override
   void initState() {
     super.initState();
@@ -266,11 +376,15 @@ class _QuizScreenState extends State<QuizScreen> {
     print(_historyId + "このクイズの通しID");
     _loadQuizzes();
     _loadFavoriteStatus();
+    print(widget.category+"これは渡されたカテゴリーだよ");
+    print(widget.numQuestions.toString() +"これは渡されたsuuji ");
+
   }
 
   Future<void> _loadQuizzes() async {
 //    final quizzes = await DatabaseHelper.getQuizzesAsRandom(limit: widget.numQuestions);
   final quizzes = await DatabaseHelper.getAllQuizzes();
+  print(quizzes.toString()+"ここがクイズです🙇🙇");
   // ★あとでランダムありなしフラグ立ててユーザーに選ばせる
 //  quizzes.shuffle(Random()); // クイズをランダムにシャッフル
     setState(() {
@@ -321,7 +435,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
       _quizHistoryDetail.add({
         'quizId': _quizzes[_currentQuestionIndex]['quizId'],
-        'isCorrect': isCorrect,
+        'isCorrect': isCorrect ,
         'selectedOptionId': _currentQuestionIndex, // 適切な選択肢IDを設定する必要があります
         'timeTaken': 0, // 時間を追跡する場合に設定します
       });
@@ -345,6 +459,7 @@ class _QuizScreenState extends State<QuizScreen> {
       'totalQuestions': _quizzes.length,
       'correctAnswers': _correctAnswers,
     };
+    print("💩" + historyData.toString());
     await DatabaseHelper.insertQuizHistory(historyData);
     print(historyData.toString() + "ひすとり");
 
@@ -353,7 +468,7 @@ class _QuizScreenState extends State<QuizScreen> {
         'historyId': _historyId,
         'quizId': detail['quizId'],
         'selectedOptionId': detail['selectedOptionId'],
-        'isCorrect': detail['isCorrect'] ? 1 : 0,
+        'isCorrect': detail['isCorrect'] ,
         'timeTaken': detail['timeTaken'],
       };
       await DatabaseHelper.insertQuizHistoryDetail(detailData);
