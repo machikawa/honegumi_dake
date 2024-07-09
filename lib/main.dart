@@ -29,15 +29,49 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  // 最終アップデートの取得
+  var latestUpdate = await getLatestUpdate();
+  var localUpdate = await DatabaseHelper.getRecentVersionFromLocal();
+  print(latestUpdate.toString() + "最新ID");
+  print(localUpdate.toString() + "つらかっちゃ😳");
+  // ローカルの最終アップデートの取得
+  print(latestUpdate['lastUpdated'].toString() +
+      ": versus🙇 : " +
+      localUpdate['lastUpdated'].toString());
 
-  runApp(QuizApp());
+  // あまりにもひどい適当なアップデート対応
+  runApp(QuizApp(fbUpdateId: latestUpdate, localUpdateId: localUpdate));
+  //  runApp(QuizApp());//update対応のため削除
+}
+
+// アップデート対応
+Future<Map<String, dynamic>> getLatestUpdate() async {
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+  QuerySnapshot querySnapshot = await firestore
+      .collection('QuizMgmt')
+      .orderBy('lastUpdated', descending: true)
+      .limit(1)
+      .get();
+  if (querySnapshot.docs.isNotEmpty) {
+    return querySnapshot.docs.first.data() as Map<String, dynamic>;
+  } else {
+    return {'updateId': '0', 'lastUpdated': 0};
+  }
 }
 
 class QuizApp extends StatelessWidget {
+  // update 対応
+  final Map<String, dynamic> fbUpdateId;
+  final Map<String, dynamic> localUpdateId;
+
+  // update 対応
+  QuizApp({required this.fbUpdateId, required this.localUpdateId});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: StartScreen(),
+      // アプデ対応。本来引き数無
+      home: StartScreen(fbUpdateId: fbUpdateId, localUpdateId: localUpdateId),
       routes: {
         '/quizConfig': (context) => QuizConfigScreen(),
         // クイズ問題を渡す変更をするときに変数が必要なのでここは個別に宣言した。
@@ -162,10 +196,37 @@ class QuizApp extends StatelessWidget {
 // }
 // ソースコードを分割済みなので無視する。最後に消す
 
-
 class StartScreen extends StatelessWidget {
+  // アップデート対
+  final Map<String, dynamic> fbUpdateId;
+  final Map<String, dynamic> localUpdateId;
+
+  StartScreen({required this.fbUpdateId, required this.localUpdateId});
+
   @override
   Widget build(BuildContext context) {
+    // クイズのアプデ対応
+    // クイズのアプデ対応
+    int fbLastUpdated = fbUpdateId['lastUpdated'] is String
+        ? int.parse(fbUpdateId['lastUpdated'])
+        : fbUpdateId['lastUpdated'];
+    int localLastUpdated = localUpdateId['lastUpdated'] is String
+        ? int.parse(localUpdateId['lastUpdated'])
+        : localUpdateId['lastUpdated'];
+    print("来てる？");
+    print(fbLastUpdated);
+    print(localLastUpdated);
+
+    print("FBの大きさ");
+    WidgetsBinding.instance!.addPostFrameCallback((_) {
+      if (fbLastUpdated > localLastUpdated) {
+        _showUpdateDialog(context, fbUpdateId['updateId'].toString(), "アップデートがあります", true);
+      } else if (fbLastUpdated == localLastUpdated) {
+        print("こっち？");
+        print("最新です");
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(title: Text('クイズアプリ')),
       body: Column(
@@ -212,7 +273,8 @@ class StartScreen extends StatelessWidget {
                   _showSaveToLocalDialog(context, quiz);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('更新エラー')),);
+                    SnackBar(content: Text('更新エラー')),
+                  );
                 }
               },
             ),
@@ -221,12 +283,16 @@ class StartScreen extends StatelessWidget {
             child: ListTile(
               title: Text('FBからクイズ取得だよ'),
               onTap: () async {
-                List<Map<String, dynamic>> quizzes = await DatabaseHelper.getQuizzesFromFirestore();
+                List<Map<String, dynamic>> quizzes =
+                    await DatabaseHelper.getQuizzesFromFirestore();
                 if (quizzes.isNotEmpty) {
+                  String quizIds =
+                      quizzes.map((quiz) => quiz['quizId']).join(', ');
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('クイズ取得成功: ${quizzes.length}件')),
+                    SnackBar(
+                        content: Text(
+                            'クイズ取得成功 ID: ${quizzes.length}件\nQuiz IDs: $quizIds')),
                   );
-                  print(quizzes);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('クイズ取得エラー')),
@@ -235,9 +301,59 @@ class StartScreen extends StatelessWidget {
               },
             ),
           ),
-
+          Card(
+            child: ListTile(
+              title: Text('FB調整'),
+              onTap: () async {
+                List<Map<String, dynamic>> quizzes =
+                    await DatabaseHelper.getAllQuizzes();
+                print("これを保存したい😳" + quizzes.toString());
+                if (quizzes.isNotEmpty) {
+                  await DatabaseHelper.addQuizzesToFirestore(quizzes);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            'クイズFB保存成功 ID: ${quizzes.length}件\nQuiz IDs:')),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('クイズ取得エラー')),
+                  );
+                }
+              },
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  //クイズアプデ対応
+  void _showUpdateDialog(
+      BuildContext context, String updateId, String message, bool canUpdate) {
+    print("コールはされている");
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(message),
+          content: Text('現在のクイズバージョンは $updateId です。アップデートしますか'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('キャンセル'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+                child: Text('OK'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  DatabaseHelper.performUpdate(fbUpdateId);
+                }),
+          ],
+        );
+      },
     );
   }
 
@@ -274,14 +390,12 @@ class StartScreen extends StatelessWidget {
       },
     );
   }
-
 }
 
 class QuizConfigScreen extends StatefulWidget {
   @override
   _QuizConfigScreenState createState() => _QuizConfigScreenState();
 }
-
 
 class _QuizConfigScreenState extends State<QuizConfigScreen> {
   // 初期選択値
@@ -325,7 +439,6 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
                 print(value.toString() + " これがプルダウン選択→Value");
               },
             ),
-
             ElevatedButton(
               child: Text('スタート'),
               onPressed: () {
@@ -333,7 +446,9 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
                   context,
                   MaterialPageRoute(
                     // ★あとでジャンルや失敗のみのオプションをつける
-                    builder: (context) => QuizScreen(numQuestions: _selectedValue, category: _selectedCategory),
+                    builder: (context) => QuizScreen(
+                        numQuestions: _selectedValue,
+                        category: _selectedCategory),
                   ),
                 );
               },
@@ -344,7 +459,6 @@ class _QuizConfigScreenState extends State<QuizConfigScreen> {
     );
   }
 }
-
 
 class QuizScreen extends StatefulWidget {
   final int numQuestions;
@@ -368,7 +482,6 @@ class _QuizScreenState extends State<QuizScreen> {
 
   final _uuid = Uuid();
 
-
   @override
   void initState() {
     super.initState();
@@ -376,19 +489,18 @@ class _QuizScreenState extends State<QuizScreen> {
     print(_historyId + "このクイズの通しID");
     _loadQuizzes();
     _loadFavoriteStatus();
-    print(widget.category+"これは渡されたカテゴリーだよ");
-    print(widget.numQuestions.toString() +"これは渡されたsuuji ");
-
+    print(widget.category + "これは渡されたカテゴリーだよ");
+    print(widget.numQuestions.toString() + "これは渡されたsuuji ");
   }
 
   Future<void> _loadQuizzes() async {
 //    final quizzes = await DatabaseHelper.getQuizzesAsRandom(limit: widget.numQuestions);
-  final quizzes = await DatabaseHelper.getAllQuizzes();
-  print(quizzes.toString()+"ここがクイズです🙇🙇");
-  // ★あとでランダムありなしフラグ立ててユーザーに選ばせる
+    final quizzes = await DatabaseHelper.getAllQuizzes();
+    print(quizzes.toString() + "ここがクイズです🙇🙇");
+    // ★あとでランダムありなしフラグ立ててユーザーに選ばせる
 //  quizzes.shuffle(Random()); // クイズをランダムにシャッフル
     setState(() {
-      _quizzes =  quizzes.take(widget.numQuestions).toList(); // 選択した問題数だけを取得
+      _quizzes = quizzes.take(widget.numQuestions).toList(); // 選択した問題数だけを取得
     });
   }
 
@@ -398,7 +510,8 @@ class _QuizScreenState extends State<QuizScreen> {
     final prefs = await SharedPreferences.getInstance();
     final favorites = prefs.getStringList('favorites') ?? [];
     setState(() {
-      _isFavorite = favorites.contains(_quizzes[_currentQuestionIndex]['quizId']);
+      _isFavorite =
+          favorites.contains(_quizzes[_currentQuestionIndex]['quizId']);
     });
   }
 
@@ -435,7 +548,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
       _quizHistoryDetail.add({
         'quizId': _quizzes[_currentQuestionIndex]['quizId'],
-        'isCorrect': isCorrect ,
+        'isCorrect': isCorrect,
         'selectedOptionId': _currentQuestionIndex, // 適切な選択肢IDを設定する必要があります
         'timeTaken': 0, // 時間を追跡する場合に設定します
       });
@@ -446,7 +559,8 @@ class _QuizScreenState extends State<QuizScreen> {
   Future<void> _saveQuizHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final history = prefs.getStringList('quizHistoryDetail') ?? [];
-    history.addAll(_quizHistoryDetail.map((detail) => json.encode(detail)).toList());
+    history.addAll(
+        _quizHistoryDetail.map((detail) => json.encode(detail)).toList());
     await prefs.setStringList('quizHistoryDetail', history);
 
     final historyData = {
@@ -468,7 +582,7 @@ class _QuizScreenState extends State<QuizScreen> {
         'historyId': _historyId,
         'quizId': detail['quizId'],
         'selectedOptionId': detail['selectedOptionId'],
-        'isCorrect': detail['isCorrect'] ,
+        'isCorrect': detail['isCorrect'],
         'timeTaken': detail['timeTaken'],
       };
       await DatabaseHelper.insertQuizHistoryDetail(detailData);
@@ -482,26 +596,27 @@ class _QuizScreenState extends State<QuizScreen> {
 
   Future<bool> _onWillPop(BuildContext context) async {
     return await showDialog(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: Text('確認'),
-        content: Text('戻るとクイズを終了しますが、よろしいですか？'),
-        actions: <Widget>[
-          TextButton(
-            child: Text('いいえ'),
-            onPressed: () => Navigator.of(context).pop(false),
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: Text('確認'),
+            content: Text('戻るとクイズを終了しますが、よろしいですか？'),
+            actions: <Widget>[
+              TextButton(
+                child: Text('いいえ'),
+                onPressed: () => Navigator.of(context).pop(false),
+              ),
+              TextButton(
+                child: Text('はい'),
+                onPressed: () async {
+                  await _saveQuizHistory();
+                  await _clearQuizHistory();
+                  Navigator.of(context).pop(true);
+                },
+              ),
+            ],
           ),
-          TextButton(
-            child: Text('はい'),
-            onPressed: () async {
-              await _saveQuizHistory();
-              await _clearQuizHistory();
-              Navigator.of(context).pop(true);
-            },
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
   }
 
   @override
@@ -524,7 +639,8 @@ class _QuizScreenState extends State<QuizScreen> {
             icon: Icon(Icons.arrow_back),
             onPressed: () async {
               if (await _onWillPop(context)) {
-                Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+                Navigator.pushNamedAndRemoveUntil(
+                    context, '/', (route) => false);
               }
             },
           ),
@@ -547,13 +663,17 @@ class _QuizScreenState extends State<QuizScreen> {
                   children: [
                     Text(
                       _isCorrect ? '正解！' : '不正解',
-                      style: TextStyle(fontSize: 24, color: _isCorrect ? Colors.green : Colors.red),
+                      style: TextStyle(
+                          fontSize: 24,
+                          color: _isCorrect ? Colors.green : Colors.red),
                     ),
                     SizedBox(height: 10),
                     Text('解説: ${quiz['explanation']}'),
                     SizedBox(height: 20),
                     ElevatedButton(
-                      child: Text(_currentQuestionIndex < _quizzes.length - 1 ? '次へ' : '結果を見る'),
+                      child: Text(_currentQuestionIndex < _quizzes.length - 1
+                          ? '次へ'
+                          : '結果を見る'),
                       onPressed: () async {
                         if (_currentQuestionIndex < _quizzes.length - 1) {
                           setState(() {
@@ -589,20 +709,21 @@ class _QuizScreenState extends State<QuizScreen> {
         onPressed: _isAnswered
             ? null
             : () {
-          _answerQuestion(option['isCorrect']);
-        },
+                _answerQuestion(option['isCorrect']);
+              },
         child: Text(option['optionText']),
       );
     }).toList();
   }
 }
 
-
 class ResultScreen extends StatelessWidget {
   Future<List<Map<String, dynamic>>> _loadQuizHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final history = prefs.getStringList('quizHistoryDetail') ?? [];
-    return history.map((item) => json.decode(item) as Map<String, dynamic>).toList();
+    return history
+        .map((item) => json.decode(item) as Map<String, dynamic>)
+        .toList();
   }
 
   Future<void> _clearQuizHistory() async {
@@ -631,25 +752,26 @@ class ResultScreen extends StatelessWidget {
 
   Future<bool> _onWillPop(BuildContext context) async {
     return await showDialog(
-      context: context,
-      builder: (BuildContext context) => AlertDialog(
-        title: Text('確認'),
-        content: Text('戻るとクイズを終了しますが、よろしいですか？'),
-        actions: <Widget>[
-          TextButton(
-            child: Text('いいえ'),
-            onPressed: () => Navigator.of(context).pop(false),
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: Text('確認'),
+            content: Text('戻るとクイズを終了しますが、よろしいですか？'),
+            actions: <Widget>[
+              TextButton(
+                child: Text('いいえ'),
+                onPressed: () => Navigator.of(context).pop(false),
+              ),
+              TextButton(
+                child: Text('はい'),
+                onPressed: () async {
+                  await _clearQuizHistory();
+                  Navigator.of(context).pop(true);
+                },
+              ),
+            ],
           ),
-          TextButton(
-            child: Text('はい'),
-            onPressed: () async {
-              await _clearQuizHistory();
-              Navigator.of(context).pop(true);
-            },
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
   }
 
   @override
@@ -676,15 +798,19 @@ class ResultScreen extends StatelessWidget {
             }
 
             final history = snapshot.data!;
-            final correctAnswers = history.where((detail) => detail['isCorrect']).length;
+            final correctAnswers =
+                history.where((detail) => detail['isCorrect']).length;
             final totalQuestions = history.length;
-            final int percentage = totalQuestions > 0 ? ((correctAnswers / totalQuestions) * 100).round() : 0;
+            final int percentage = totalQuestions > 0
+                ? ((correctAnswers / totalQuestions) * 100).round()
+                : 0;
 
             return Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  Text('正解数: $correctAnswers / $totalQuestions', style: TextStyle(fontSize: 24)),
+                  Text('正解数: $correctAnswers / $totalQuestions',
+                      style: TextStyle(fontSize: 24)),
                   Text('正解率: $percentage%', style: TextStyle(fontSize: 24)),
                   Expanded(
                     child: ListView.builder(
@@ -704,7 +830,9 @@ class ResultScreen extends StatelessWidget {
                                 subtitle: Text(detail['isCorrect'] ? '〇' : '✖'),
                                 trailing: IconButton(
                                   icon: Icon(
-                                    isFavorite ? Icons.favorite : Icons.favorite_border,
+                                    isFavorite
+                                        ? Icons.favorite
+                                        : Icons.favorite_border,
                                     color: isFavorite ? Colors.red : null,
                                   ),
                                   onPressed: () async {
@@ -722,7 +850,8 @@ class ResultScreen extends StatelessWidget {
                   ElevatedButton(
                     onPressed: () async {
                       await _clearQuizHistory();
-                      Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+                      Navigator.pushNamedAndRemoveUntil(
+                          context, '/', (route) => false);
                     },
                     child: Text('スタートに戻る'),
                   ),

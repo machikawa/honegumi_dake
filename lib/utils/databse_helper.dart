@@ -35,6 +35,10 @@ class DatabaseHelper {
         db.execute(
           "CREATE TABLE Fav(quizId TEXT PRIMARY KEY, timestamp INTEGER)",
         );
+        // プライマリーいるわ
+        db.execute(
+          "CREATE TABLE QuizMgmt(updateId TEXT, lastUpdated INTEGER)"
+        );
         // db.execute(
         //   "CREATE TABLE Update(updateId TEXT PRIMARY KEY, timestamp INTEGER)",
         // );
@@ -89,9 +93,9 @@ class DatabaseHelper {
       'createdBy': 'admin',
       'updatedAt': DateTime.now().millisecondsSinceEpoch
     });
+
+    await db.insert('QuizMgmt', {'updateId':'0', 'lastUpdated':'946652400'});
   }
-
-
 
   // 全県を正直に引っ張る
   static Future<List<Map<String, dynamic>>> getAllQuizzes() async {
@@ -146,6 +150,59 @@ class DatabaseHelper {
       print("Error getting documents from Firestore: $e");
       return [];
     }
+  }
+
+  // Firebase にQuizを突っ込んでみる
+  static Future<void> addQuizzesToFirestore(List<Map<String, dynamic>> quizzes) async {
+    final FirebaseFirestore firestore = FirebaseFirestore.instance;
+    final String collectionName = 'quizOnFb';
+
+    for (var quiz in quizzes) {
+      await firestore.runTransaction((transaction) async {
+        // quizIdの重複チェック
+        QuerySnapshot snapshot = await firestore
+            .collection(collectionName)
+            .where('quizId', isEqualTo: quiz['quizId'])
+            .get();
+
+        if (snapshot.docs.isEmpty) {
+          // 重複がなければ新しいドキュメントを追加
+          await firestore.collection(collectionName).add(quiz);
+          print("ここまでOK");
+        } else {
+          print('重複エラー: 同じquizIdを持つドキュメントが既に存在します');
+        }
+      });
+    }
+  }
+
+  //アプデ対応
+  static Future<Map<String, dynamic>> getRecentVersionFromLocal() async {
+    if (_database == null) await initializeDatabase();
+    List<Map<String, dynamic>> result = await _database!.query(
+      'QuizMgmt',
+      orderBy: 'lastUpdated DESC',
+      limit: 1,
+    );
+    return result.isNotEmpty ? result.first :  {'updateId': '0', 'lastUpdated': 0};
+  }
+
+  //アプデ対応
+  static Future<void> performUpdate(Map<String, dynamic> updateId) async {
+
+    // FBから取ってきたクイズをローカルに保存
+
+    // 成功したら→ローカルのQuizMgmtテーブルにインサートする処理
+    final latestUpdate = {
+      'updateId': updateId['updateId'],
+      'lastUpdated': updateId['lastUpdated'],
+    };
+    if (_database == null) await initializeDatabase();
+    await _database!.insert('QuizMgmt', latestUpdate );
+    // 最後に UI に成功とエラーを記載
+
+
+    print('アップデート処理を実行しました: $latestUpdate');
   }
 
 
